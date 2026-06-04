@@ -1,0 +1,37 @@
+# Environment files
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+langchain_agent/.venv/
+browser_agent/.venv/
+
+# Local databases and runtime data
+langchain_agent/data/*.db
+langchain_agent/data/*.db-*
+langchain_agent/data/chroma/
+langchain_agent/data/chroma_corrupt_*/
+langchain_agent/data/resumes/
+browser_agent/logs/
+browser_agent/output/
+
+# Local embedding/model weights
+bge-small/
+*.bin
+*.safetensors
+*.onnx
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

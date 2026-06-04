@@ -1,0 +1,25 @@
+{
+  "sources": [
+    {
+      "name": "xiaomi_campus_browser",
+      "enabled": true,
+      "adapter": "xiaomi_campus",
+      "list_url": "https://xiaomi.jobs.f.mioffice.cn/campus/?spread=J7NS6YR",
+      "robots_url": "https://xiaomi.jobs.f.mioffice.cn/robots.txt",
+      "allow_missing_robots_txt": true,
+      "allowed_domains": ["xiaomi.jobs.f.mioffice.cn"],
+      "detail_url_patterns": ["/campus/position/"],
+      "detail_url_regex": "^/campus/position/\\d+/detail$",
+      "api_pagination": true,
+      "api_response_pattern": "/api/v1/search/job/posts",
+      "api_next_selector": "li.atsx-pagination-next:not(.atsx-pagination-disabled)",
+      "max_list_pages": 1,
+      "max_detail_jobs": 10,
+      "detail_concurrency": 3,
+      "llm_concurrency": 2,
+      "request_delay_seconds": 1.5,
+      "navigation_wait_ms": 3500,
+      "use_llm_fallback": false
+    }
+  ]
+}

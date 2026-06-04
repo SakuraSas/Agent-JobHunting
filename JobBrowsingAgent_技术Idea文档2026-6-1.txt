@@ -1,0 +1,1374 @@
+Agent-JobHunting：招聘网站 Browser Agent / CrawledJob / RAG 技术 Idea 文档
+生成日期：2026-05-31
+用途：作为后续开发 JobBrowsingAgent / 招聘采集 Agent 的执行参考文档
+
+============================================================
+0. 文档背景
+============================================================
+
+当前项目 Agent-JobHunting 已经形成两部分：
+
+1）langchain_agent
+- FastAPI Web 服务
+- SSE 流式对话
+- LangChain / LangGraph Agent
+- DeepSeek Chat
+- SQLite 保存岗位结构化数据
+- Chroma 保存岗位向量
+- AsyncSqliteSaver 保存对话 checkpoint
+- 简历上传、管理、选择和删除
+- Web 前端 Markdown 渲染与会话管理
+
+2）crawl4
+- 独立 Crawl4AI 定期采集项目
+- sources.json 配置数据源
+- 站点解析器输出统一 CrawledJob
+- 增量同步 SQLite 与 Chroma
+- 支持新增、更新、失效岗位状态
+
+现有项目已经具备：
+- 岗位结构化存储
+- RAG 检索能力
+- 简历匹配分析
+- Web 前端交互
+- Crawl4AI 定期同步公开岗位的基本框架
+
+本轮讨论的核心问题是：
+
+是否需要新增一个像人一样访问招聘网站的 Browser Agent，
+用于打开招聘网站、点击岗位、翻页、筛选、进入详情页，
+读取当前页面可见文字，
+再通过规则或 LLM 转换为 CrawledJob，
+最后写入 Job-hunting Agent 的 SQLite 和 Chroma。
+
+结论：
+
+第一版可以不使用 Crawl4AI，直接用 Playwright 实现 Browser Agent MVP。
+Crawl4AI 后续可作为“已知详情页 URL 的清洗、Markdown 化、批量抽取增强层”，而不是交互式 Browser Agent 的核心。
+
+
+============================================================
+1. 核心思想总结
+============================================================
+
+1.1 不要把招聘采集理解成单纯 HTML 爬虫
+
+传统方式：
+- requests 抓 HTML
+- BeautifulSoup/CSS selector 提取字段
+- 写入数据库
+
+但小米、华为、腾讯等企业招聘站通常是：
+- 前端动态渲染
+- SPA 路由
+- JS 加载岗位列表
+- 岗位详情可能在弹窗、抽屉、新路由或 post_detail 页面里
+- 原始 HTML 中不一定有岗位正文
+
+因此，新的采集方式应更接近：
+
+打开真实浏览器
+→ 像人一样点击岗位列表
+→ 进入岗位详情页
+→ 获取当前页面人眼可见文本
+→ 判断是否是岗位详情
+→ 抽取岗位职责、岗位要求等字段
+→ 转为 CrawledJob
+→ 写入 SQLite 和 Chroma
+
+这是一种 Browser-driven visible text extraction，而不是纯 HTML selector 爬虫。
+
+------------------------------------------------------------
+
+1.2 Playwright 足够支撑 MVP
+
+Playwright 可以完成：
+
+- 打开网页
+- 等待 JS 渲染完成
+- 点击岗位卡片
+- 点击筛选项
+- 输入搜索关键词
+- 滚动页面
+- 翻页
+- 回退
+- 处理弹窗
+- 获取 body.innerText / main.innerText
+- 获取所有链接、按钮、输入框
+- 获取当前 URL、页面标题
+- 截图兜底
+- 监听网络请求，发现 API
+
+因此，如果当前目标是：
+
+Playwright 打开页面
+→ Browser Agent 点击、筛选、翻页
+→ 提取 visible_text
+→ 规则或 LLM 转 CrawledJob
+→ 写入 SQLite + Chroma
+
+那么第一版不需要强行引入 Crawl4AI。
+
+------------------------------------------------------------
+
+1.3 Crawl4AI 的定位应后移
+
+Crawl4AI 不是不能用，而是不应在 MVP 阶段成为交互式 Browser Agent 的核心。
+
+Crawl4AI 更适合：
+
+- 已知岗位详情 URL 后批量抓取
+- 将网页转成 clean markdown
+- 内容清洗
+- LLM-friendly 文本生成
+- CSS/XPath/LLM 抽取策略封装
+- 定时批量同步
+- 代理、缓存、截图、robots、并发等爬虫工程能力
+
+在本项目中，Crawl4AI 更适合作为：
+
+抽取增强层 / 批量详情页处理器 / 定期同步工具
+
+而 Playwright Browser Agent 更适合作为：
+
+交互式发现层 / 点击层 / 页面状态推进层
+
+推荐最终分工：
+
+Playwright Browser Agent：
+- 打开网站
+- 筛选实习生
+- 点击岗位卡片
+- 进入详情页
+- 翻页
+- 处理弹窗
+- 提取可见文本
+
+Crawl4AI：
+- 对已知详情 URL 生成 markdown
+- 清洗网页正文
+- 批量处理详情页
+- 作为后续增强能力
+
+Rules + LLM：
+- 判断页面是否是岗位详情页
+- 抽取岗位职责和岗位要求
+- 转换为 CrawledJob
+- 清洗字段和归一化
+
+SQLite + Chroma（这里应该是JobHunting Agent的SQLite + Chroma）：
+- SQLite 存结构化岗位
+- Chroma 存原始岗位文本和分块向量
+
+------------------------------------------------------------
+
+1.4 规则优先，LLM 兜底
+
+很多判断不需要 LLM。
+
+例如“当前页面是不是岗位详情页”，可以用规则判断：
+
+URL 强信号：
+- detail
+- post_detail
+- position
+- jobId
+- postid
+
+文本强信号：
+- 岗位职责
+- 职位描述
+- 工作职责
+- 工作内容
+- 岗位要求
+- 任职要求
+- 职位要求
+- 任职资格
+- 工作地点
+- 招聘对象
+- 投递
+
+如果这些关键词出现，并且文本长度足够，则基本可判断为岗位详情页。
+
+岗位职责和岗位要求也可以规则分段：
+
+- 从“岗位职责 / 职位描述 / 工作职责 / 工作内容”开始
+- 到“岗位要求 / 职位要求 / 任职要求 / 任职资格”结束
+- 从“岗位要求 / 职位要求 / 任职要求 / 任职资格”开始
+- 到“工作地点 / 职位类别 / 招聘对象 / 投递 / 申请”结束
+
+LLM 适合做：
+- 规则抽不到 title 时补充
+- 将职责/要求拆成列表
+- 抽取技能栈
+- 抽取学历、专业、实习时长、每周天数
+- 去掉导航栏、页脚、推荐岗位噪声
+- 复杂页面的字段归一化
+- 多种表达方式统一成 CrawledJob schema
+
+推荐策略：
+
+规则能完成的，不用 LLM。
+规则不确定或字段缺失，再调用 LLM。
+
+这样可以降低成本，提高稳定性。
+
+
+============================================================
+2. 推荐 MVP 架构
+============================================================
+
+模块名称建议：JobBrowsingAgent
+
+------------------------------------------------------------
+
+2.1 数据流
+
+用户或定时任务触发
+→ JobBrowsingAgent 启动
+→ Playwright 打开招聘网站
+→ 选择“实习生”或对应招聘类型
+→ 获取岗位列表
+→ 逐个点击岗位
+→ 进入详情页或详情弹窗
+→ 提取当前页面 visible_text
+→ 规则判断是否是岗位详情
+→ 是：抽取 CrawledJob
+→ 写入 SQLite
+→ 写入 Chroma
+→ 返回列表
+→ 点击下一个岗位
+→ 当前页完成后点击下一页
+→ 无下一页则停止
+
+------------------------------------------------------------
+
+2.2 MVP 不需要 Crawl4AI 的理由
+
+当前流程核心是多步交互式浏览：
+
+- 点击岗位
+- 筛选条件
+- 翻页
+- 回退
+- 处理弹窗
+- 从当前浏览器状态读取文本
+
+这些能力是 Playwright 原生强项。
+
+Crawl4AI 的 arun 更适合“给定 URL 后返回网页内容/Markdown/抽取结果”，不适合作为复杂多步点击流程的主控层。
+
+因此第一版建议：
+
+Playwright-only Browser Agent
++ rules
++ LLM fallback
++ SQLite
++ Chroma
+
+后续遇到正文清洗、批量详情页处理、并发、缓存、代理需求时，再局部引入 Crawl4AI。
+
+
+============================================================
+3. CrawledJob Schema 建议
+============================================================
+
+建议统一输出：
+
+{
+  "source": "xiaomi|huawei|tencent|other",
+  "company": "小米|华为|腾讯",
+  "job_id": "string|null",
+  "title": "string",
+  "locations": ["北京", "深圳"],
+  "department": "string|null",
+  "business_group": "string|null",
+  "job_type": "internship|campus|fulltime|unknown",
+  "category": "算法|后端|前端|产品|测试|运营|unknown",
+  "responsibilities": ["..."],
+  "requirements": ["..."],
+  "skills": ["Python", "C++", "深度学习"],
+  "education": "本科|硕士|博士|null",
+  "major": "计算机相关|null",
+  "internship_duration": "3个月以上|null",
+  "work_days_per_week": 4,
+  "description": "完整岗位说明文本",
+  "apply_url": "string",
+  "source_url": "string",
+  "raw_visible_text": "string",
+  "raw_markdown": "string|null",
+  "content_hash": "string",
+  "status": "active|inactive|offline|unknown",
+  "first_seen_at": "datetime",
+  "last_seen_at": "datetime",
+  "crawled_at": "datetime"
+}
+
+字段说明：
+
+- source：数据源标识，用于区分不同招聘网站
+- company：公司名
+- job_id：从 URL 或页面中提取的岗位 ID
+- title：岗位名称
+- locations：工作地点
+- department/business_group：部门、事业群
+- job_type：实习/校招/全职
+- responsibilities：岗位职责
+- requirements：岗位要求
+- skills：技能栈
+- education：学历要求
+- internship_duration：实习周期
+- work_days_per_week：每周实习天数
+- description：合并后的岗位正文
+- apply_url/source_url：原始投递或详情链接
+- raw_visible_text：当前页面人眼可见文本，供溯源和重解析
+- content_hash：内容去重
+- status：岗位状态
+- first_seen_at/last_seen_at/crawled_at：增量同步和失效判断
+
+
+============================================================
+4. SQLite 与 Chroma 存储设计
+============================================================
+
+4.1 SQLite 存结构化数据
+
+SQLite 负责：
+- 岗位列表展示
+- 去重
+- 状态管理
+- 查询公司、地点、岗位类型
+- 与 Chroma 检索结果 join
+- 保存原始 URL
+- 保存岗位失效状态
+
+建议表结构：
+
+CREATE TABLE IF NOT EXISTS crawled_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,
+    company TEXT,
+    job_id TEXT,
+    title TEXT,
+    locations_json TEXT,
+    department TEXT,
+    business_group TEXT,
+    job_type TEXT,
+    category TEXT,
+    responsibilities_json TEXT,
+    requirements_json TEXT,
+    skills_json TEXT,
+    education TEXT,
+    major TEXT,
+    internship_duration TEXT,
+    work_days_per_week INTEGER,
+    description TEXT,
+    apply_url TEXT,
+    source_url TEXT UNIQUE,
+    raw_visible_text TEXT,
+    raw_markdown TEXT,
+    content_hash TEXT,
+    status TEXT DEFAULT 'active',
+    first_seen_at TEXT,
+    last_seen_at TEXT,
+    crawled_at TEXT
+);
+
+建议索引：
+
+CREATE INDEX IF NOT EXISTS idx_jobs_source ON crawled_jobs(source);
+CREATE INDEX IF NOT EXISTS idx_jobs_company ON crawled_jobs(company);
+CREATE INDEX IF NOT EXISTS idx_jobs_title ON crawled_jobs(title);
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON crawled_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_jobs_hash ON crawled_jobs(content_hash);
+
+------------------------------------------------------------
+
+4.2 Chroma 存 RAG 文本
+
+Chroma 负责：
+- 用户自然语言问答
+- 岗位要求相似检索
+- 简历与岗位匹配
+- 技术栈召回
+- “哪些岗位要求 Python/深度学习/后端开发”这类语义查询
+
+建议每个岗位写入 2-4 个 chunk：
+
+chunk 1：岗位基本信息
+文本：
+公司：腾讯
+岗位：后台开发实习生
+地点：深圳
+部门：CSIG
+岗位类型：实习生
+URL：...
+
+chunk 2：岗位职责
+文本：
+岗位职责：
+1. ...
+2. ...
+
+chunk 3：岗位要求
+文本：
+岗位要求：
+1. ...
+2. ...
+
+chunk 4：完整原文，可选
+文本：
+raw_visible_text
+
+metadata：
+
+{
+  "source": "tencent",
+  "company": "腾讯",
+  "job_id": "1200791473415778304",
+  "title": "后台开发实习生",
+  "chunk_type": "requirements",
+  "source_url": "https://join.qq.com/..."
+}
+
+推荐：
+- SQLite 存结构化主表
+- Chroma 存岗位文本块
+- Chroma 检索结果通过 source_url 或 job_id 回查 SQLite
+- 保留 raw_visible_text，便于后续重新解析
+
+
+============================================================
+5. 页面状态观察设计
+============================================================
+
+建议定义 PageState：
+
+@dataclass
+class PageState:
+    url: str
+    title: str
+    visible_text: str
+    links: list[dict]
+    buttons: list[dict]
+    inputs: list[dict]
+    screenshot_path: str | None = None
+
+Playwright 观测函数：
+
+async def observe_page(page) -> PageState:
+    visible_text = await page.locator("body").inner_text()
+
+    links = await page.locator("a").evaluate_all(\"\"\"
+        els => els.map(a => ({
+            text: a.innerText.trim(),
+            href: a.href
+        })).filter(x => x.text || x.href)
+    \"\"\")
+
+    buttons = await page.locator("button").evaluate_all(\"\"\"
+        els => els.map((b, i) => ({
+            index: i,
+            text: b.innerText.trim(),
+            disabled: b.disabled
+        }))
+    \"\"\")
+
+    inputs = await page.locator("input").evaluate_all(\"\"\"
+        els => els.map((x, i) => ({
+            index: i,
+            placeholder: x.placeholder || "",
+            value: x.value || "",
+            type: x.type || ""
+        }))
+    \"\"\")
+
+    return PageState(
+        url=page.url,
+        title=await page.title(),
+        visible_text=visible_text,
+        links=links,
+        buttons=buttons,
+        inputs=inputs
+    )
+
+注意：
+
+- body.innerText 是 MVP 足够好用的文本来源
+- 后续可以优先尝试 main.innerText 或详情区域 innerText
+- 如果 body 噪声太多，再做区域选择和文本清洗
+
+
+============================================================
+6. 规则判断页面类型
+============================================================
+
+6.1 判断是否为岗位详情页
+
+规则示例：
+
+DETAIL_URL_KEYS = [
+    "detail",
+    "post_detail",
+    "position",
+    "jobid",
+    "postid"
+]
+
+JOB_DETAIL_KEYWORDS = [
+    "岗位职责",
+    "工作职责",
+    "职位描述",
+    "工作内容",
+    "岗位要求",
+    "职位要求",
+    "任职要求",
+    "任职资格",
+    "工作地点",
+    "招聘对象",
+    "投递",
+    "申请"
+]
+
+def is_job_detail_page(state: PageState) -> bool:
+    text = state.visible_text
+    url = state.url.lower()
+    score = 0
+
+    if any(k in url for k in DETAIL_URL_KEYS):
+        score += 2
+
+    score += sum(1 for k in JOB_DETAIL_KEYWORDS if k in text)
+
+    if len(text) > 300:
+        score += 1
+
+    return score >= 4
+
+------------------------------------------------------------
+
+6.2 判断是否为岗位列表页
+
+列表页信号：
+
+- 页面有多个疑似岗位链接
+- 文本中多次出现“实习生”
+- 多个城市名称重复出现
+- 有“下一页”
+- URL 包含 job-list / recruitment / internship / post
+- 页面中有搜索框、筛选项
+
+伪代码：
+
+def is_job_list_page(state: PageState) -> bool:
+    text = state.visible_text
+    job_like_links = find_job_links(state.links)
+
+    if len(job_like_links) >= 3:
+        return True
+
+    if text.count("实习") >= 3 and ("下一页" in text or "职位" in text):
+        return True
+
+    return False
+
+------------------------------------------------------------
+
+6.3 判断下一页
+
+按钮文本：
+- 下一页
+- 下一步
+- 更多
+- 加载更多
+- >
+- Next
+
+规则：
+- 优先找 button 文本
+- 再找 a 链接文本
+- 再找 pagination 区域
+- disabled 为 true 不点击
+
+伪代码：
+
+def find_next_page_button(state):
+    keys = ["下一页", "加载更多", "更多", "Next", ">"]
+    for btn in state.buttons:
+        if not btn.get("disabled") and any(k in btn.get("text", "") for k in keys):
+            return btn
+    for link in state.links:
+        if any(k in link.get("text", "") for k in keys):
+            return link
+    return None
+
+
+============================================================
+7. 岗位链接/卡片发现
+============================================================
+
+招聘站常见详情链接关键词：
+
+- detail
+- post_detail
+- position
+- jobId
+- postid
+- job
+- campus-recruitment-detail
+
+从 links 中发现：
+
+def find_job_links(links):
+    result = []
+    keys = [
+        "detail", "post_detail", "position",
+        "jobid", "postid", "campus-recruitment-detail"
+    ]
+
+    for link in links:
+        href = (link.get("href") or "").lower()
+        text = link.get("text") or ""
+
+        if any(k in href for k in keys):
+            result.append(link)
+            continue
+
+        if "实习" in text and len(text) <= 80:
+            result.append(link)
+
+    return result
+
+如果网站岗位卡片不是 a 标签，而是 div 卡片：
+
+- 使用 locator 查找包含“实习生”“岗位”“职位”的卡片区域
+- 获取 bounding_box
+- 通过 locator.click() 或 mouse.click() 点击
+- 点击后判断 URL 是否变化或详情弹窗是否出现
+
+注意：
+- 优先通过链接 href 打开
+- 其次点击卡片
+- 最后坐标点击兜底
+
+
+============================================================
+8. 岗位字段抽取：规则优先
+============================================================
+
+8.1 分段函数
+
+def section_between(text: str, starts: list[str], ends: list[str]) -> str | None:
+    start_positions = [(text.find(s), s) for s in starts if text.find(s) != -1]
+    if not start_positions:
+        return None
+
+    start_idx, start_key = min(start_positions, key=lambda x: x[0])
+    content_start = start_idx + len(start_key)
+
+    end_positions = [
+        text.find(e, content_start)
+        for e in ends
+        if text.find(e, content_start) != -1
+    ]
+
+    end_idx = min(end_positions) if end_positions else len(text)
+    return text[content_start:end_idx].strip()
+
+------------------------------------------------------------
+
+8.2 抽取岗位职责
+
+responsibilities_text = section_between(
+    text,
+    ["岗位职责", "工作职责", "职位描述", "工作内容"],
+    ["岗位要求", "职位要求", "任职要求", "任职资格", "工作地点", "投递", "申请"]
+)
+
+------------------------------------------------------------
+
+8.3 抽取岗位要求
+
+requirements_text = section_between(
+    text,
+    ["岗位要求", "职位要求", "任职要求", "任职资格"],
+    ["工作地点", "职位类别", "招聘对象", "投递", "申请", "职位亮点"]
+)
+
+------------------------------------------------------------
+
+8.4 抽取地点
+
+简单城市词典：
+
+CITIES = [
+    "北京", "上海", "深圳", "广州", "杭州", "成都",
+    "武汉", "南京", "西安", "苏州", "东莞", "重庆",
+    "天津", "厦门", "长沙", "合肥", "远程"
+]
+
+def extract_locations(text):
+    return [c for c in CITIES if c in text]
+
+------------------------------------------------------------
+
+8.5 抽取 job_id
+
+从 URL 中提取：
+
+腾讯：
+post_detail.html?postid=1200791473415778304
+→ postid
+
+华为：
+jobId=xxx
+→ jobId
+
+小米：
+/position/7613574817882769700/detail
+→ position 后面的数字
+
+伪代码：
+
+from urllib.parse import urlparse, parse_qs
+import re
+
+def extract_job_id(url):
+    parsed = urlparse(url)
+    qs = parse_qs(parsed.query)
+
+    for key in ["jobId", "jobid", "postid", "postId", "positionId"]:
+        if key in qs:
+            return qs[key][0]
+
+    m = re.search(r"/position/([^/]+)/detail", url)
+    if m:
+        return m.group(1)
+
+    return None
+
+------------------------------------------------------------
+
+8.6 抽取 title
+
+第一版可采用：
+- 页面 title
+- URL 对应岗位卡片文本
+- visible_text 前若干行中最像岗位名称的一行
+
+规则：
+- 包含“实习生”“工程师”“开发”“算法”“产品”“测试”“运营”等
+- 长度 4-50
+- 不包含“首页”“登录”“投递记录”
+
+如果规则不稳，交给 LLM。
+
+------------------------------------------------------------
+
+8.7 规则抽取输出
+
+def rule_extract_job(state: PageState, source: str, company: str) -> dict:
+    text = state.visible_text
+    url = state.url
+
+    responsibilities = section_between(
+        text,
+        ["岗位职责", "工作职责", "职位描述", "工作内容"],
+        ["岗位要求", "职位要求", "任职要求", "任职资格", "工作地点", "投递", "申请"]
+    )
+
+    requirements = section_between(
+        text,
+        ["岗位要求", "职位要求", "任职要求", "任职资格"],
+        ["工作地点", "职位类别", "招聘对象", "投递", "申请"]
+    )
+
+    return {
+        "source": source,
+        "company": company,
+        "job_id": extract_job_id(url),
+        "title": extract_title_by_rule(text, state.title),
+        "locations": extract_locations(text),
+        "responsibilities": split_items(responsibilities),
+        "requirements": split_items(requirements),
+        "source_url": url,
+        "apply_url": url,
+        "raw_visible_text": text,
+        "status": "active"
+    }
+
+
+============================================================
+9. LLM 兜底抽取设计
+============================================================
+
+当规则抽取失败时调用 LLM。
+
+触发条件：
+- title 为空
+- responsibilities 为空
+- requirements 为空
+- 页面噪声太多
+- 字段混在一起
+- 非标准格式
+- 页面存在多个岗位，需要判断主岗位
+- 需要抽取 skills、education、duration、work_days_per_week
+
+Prompt 思路：
+
+你是招聘岗位信息抽取器。
+下面是招聘岗位详情页的可见文本。
+请只基于文本中真实出现的信息抽取，不要编造。
+如果字段不存在，返回 null 或空数组。
+请输出严格 JSON，不要输出解释。
+
+字段：
+- source
+- company
+- job_id
+- title
+- locations
+- department
+- business_group
+- job_type
+- responsibilities
+- requirements
+- skills
+- education
+- major
+- internship_duration
+- work_days_per_week
+- source_url
+- apply_url
+- status
+
+输入：
+URL: {url}
+页面标题: {title}
+页面文本:
+{text}
+
+输出 JSON：
+
+注意：
+- 不要把导航栏、页脚、推荐岗位当作当前岗位
+- 不要编造未出现的信息
+- 原始 URL 必须保留
+- 如果页面显示“职位已下线”，status = offline
+- 如果无法判断岗位状态，status = unknown
+
+后处理：
+- JSON schema 校验
+- source_url 不允许为空
+- title 为空则丢弃或标记为 invalid
+- responsibilities/requirements 至少一个非空才入库
+- content_hash 去重
+
+
+============================================================
+10. Browser Agent 决策循环
+============================================================
+
+推荐决策逻辑：
+
+输入：
+- 当前 PageState
+- visited_urls
+- visited_job_ids
+- 当前 source 配置
+- 当前页处理进度
+
+输出 action：
+- extract_job
+- click_job
+- click_next_page
+- close_popup
+- go_back
+- scroll
+- stop
+
+伪代码：
+
+async def run_source(source_config):
+    browser = await chromium.launch(headless=False)
+    page = await browser.new_page()
+    await page.goto(source_config.entry_url)
+    await page.wait_for_load_state("networkidle")
+
+    visited_urls = set()
+    extracted_jobs = []
+
+    while True:
+        state = await observe_page(page)
+
+        if has_popup(state):
+            await close_popup(page)
+            continue
+
+        if is_job_detail_page(state):
+            job = extract_job_rules_first(state, source_config)
+            if need_llm_fallback(job):
+                job = llm_extract_job(state, source_config, partial=job)
+
+            save_job_to_sqlite_and_chroma(job)
+            extracted_jobs.append(job)
+            visited_urls.add(state.url)
+
+            await safe_go_back_or_return_to_list(page)
+            continue
+
+        job_links = find_job_links(state.links)
+        unvisited = [
+            x for x in job_links
+            if x["href"] and x["href"] not in visited_urls
+        ]
+
+        if unvisited:
+            await page.goto(unvisited[0]["href"])
+            await page.wait_for_load_state("networkidle")
+            continue
+
+        next_button = find_next_page_button(state)
+        if next_button:
+            await click_next(page, next_button)
+            await page.wait_for_load_state("networkidle")
+            continue
+
+        break
+
+    await browser.close()
+    return extracted_jobs
+
+关键点：
+- 不要让 LLM 每一步都决定点击哪里
+- 主流程用规则
+- LLM 只处理不确定情况
+- visited_urls 防止死循环
+- 设置 max_pages、max_jobs、max_steps 防止失控
+
+
+============================================================
+11. 针对小米、华为、腾讯的站点思路
+============================================================
+
+11.1 小米
+
+入口：
+https://xiaomi.jobs.f.mioffice.cn/internship/?spread=6AA3R7B
+
+可能详情页：
+/internship/position/{position_id}/detail
+
+特点：
+- 动态渲染概率高
+- 详情页可能包含职位描述、职位要求
+- 有些岗位会显示“该职位已下线”
+
+建议策略：
+- Playwright 打开实习入口
+- 筛选或读取实习岗位列表
+- 优先发现 position detail 链接
+- 点击详情页
+- 规则抽取“职位描述”“职位要求”
+- 如果文本出现“已下线”，status = offline
+
+字段重点：
+- title
+- job_id
+- responsibilities/职位描述
+- requirements/职位要求
+- locations
+- source_url
+- status
+
+------------------------------------------------------------
+
+11.2 华为
+
+入口：
+https://career.huawei.com/cn/campus-recruitment-job-list?recruitmentType=INTERN
+
+可能详情页：
+campus-recruitment-detail.html?jobId=...
+
+特点：
+- 动态渲染概率高
+- 可能存在多个 portal
+- jobId 是重要主键
+- 招聘对象、岗位类别、工作地点等字段可能较标准
+
+建议策略：
+- Playwright 打开实习列表
+- recruitmentType=INTERN 作为固定筛选
+- 发现 jobId 详情链接或监听 XHR
+- 进入详情后抽取岗位职责、岗位要求
+- 保留 jobId
+
+字段重点：
+- title
+- jobId
+- job_type
+- locations
+- category
+- responsibilities
+- requirements
+- recruitment target
+- source_url
+
+------------------------------------------------------------
+
+11.3 腾讯
+
+入口建议：
+https://join.qq.com/post.html
+
+用户给过的详情形式：
+https://join.qq.com/post_detail.html?postid=1200791473415778304
+
+特点：
+- postid 是重要主键
+- 岗位详情页结构较清晰
+- 可能包含事业群，例如 IEG、CSIG、PCG、TEG、WXG
+- 列表页中可能有岗位方向、地点、事业群
+
+建议策略：
+- 不要只从某个 post_detail 开始
+- 从 post.html 列表页开始
+- 筛选实习生或校招实习
+- 发现 post_detail.html?postid=xxx
+- 进入详情抽取岗位职责、岗位要求
+
+字段重点：
+- title
+- postid
+- business_group
+- locations
+- responsibilities
+- requirements
+- source_url
+
+
+============================================================
+12. 何时引入 Crawl4AI
+============================================================
+
+第一阶段：不引入 Crawl4AI
+目标：
+- 快速实现 JobBrowsingAgent MVP
+- 验证小米/华为/腾讯至少一个站点能跑通
+- visible_text → rules/LLM → CrawledJob → SQLite/Chroma
+
+第二阶段：局部引入 Crawl4AI
+适用：
+- 已经拿到 detail_url
+- 需要将详情页转成更干净的 markdown
+- 需要批量处理详情页
+- 需要统一网页清洗流程
+
+方式：
+- Playwright Browser Agent 负责发现 detail_url
+- Crawl4AI 对 detail_url 批量 arun
+- result.markdown 交给 rules/LLM
+- 输出 CrawledJob
+
+第三阶段：双通道架构
+交互发现通道：
+- Playwright Browser Agent
+- 负责进入列表、点击、翻页、发现 detail_url
+
+内容抽取通道：
+- Crawl4AI
+- 负责详情页 markdown、截图、清洗、缓存、批量抽取
+
+结构化通道：
+- Rules + LLM
+- 负责 CrawledJob
+
+存储通道：
+- SQLite + Chroma
+
+最终架构：
+
+User / Scheduler
+→ JobBrowsingAgent
+→ Playwright discovers detail URLs
+→ Crawl4AI cleans detail pages
+→ Rules + LLM extract CrawledJob
+→ SQLite + Chroma
+→ Job-hunting Agent RAG
+
+
+============================================================
+13. 合规与边界
+============================================================
+
+必须遵守：
+- 只访问公开可访问岗位页面
+- 不绕过登录
+- 不绕过验证码
+- 不绕过限流和反爬
+- 不自动投递简历
+- 不自动填写招聘表单
+- 不自动联系招聘方
+- 保留原始 URL 供用户核实
+- 人工检查服务条款和 robots.txt
+- 设置合理访问频率
+- 对招聘数据做“供参考”提示
+
+项目边界：
+Agent 只负责：
+- 公开岗位检索
+- 岗位详情整理
+- 简历匹配分析
+- 能力缺口建议
+- 原始 URL 提供
+
+Agent 不负责：
+- 自动投递
+- 代替用户做求职决策
+- 绕过招聘网站限制
+- 处理非公开岗位数据
+
+
+============================================================
+14. 明天可执行任务清单
+============================================================
+
+建议按以下顺序执行。
+
+------------------------------------------------------------
+任务 1：新建 JobBrowsingAgent 模块
+------------------------------------------------------------
+
+位置建议：
+
+langchain_agent/src/job_agent/job_browser/
+或
+crawl4/src/job_sync/browser_agent/
+
+如果希望它服务主 Agent，放在 langchain_agent 下。
+如果希望它作为采集任务，放在 crawl4 下。
+
+建议第一版放在 crawl4 中，因为它更接近“岗位采集”。
+
+目录：
+
+crawl4/src/job_sync/browser_agent/
+├── __init__.py
+├── models.py
+├── observer.py
+├── detector.py
+├── extractor_rules.py
+├── extractor_llm.py
+├── storage.py
+├── runner.py
+└── sources.py
+
+------------------------------------------------------------
+任务 2：定义 PageState 和 CrawledJob
+------------------------------------------------------------
+
+PageState：
+- url
+- title
+- visible_text
+- links
+- buttons
+- inputs
+- screenshot_path
+
+CrawledJob：
+- source
+- company
+- job_id
+- title
+- locations
+- responsibilities
+- requirements
+- source_url
+- raw_visible_text
+- content_hash
+- status
+- crawled_at
+
+------------------------------------------------------------
+任务 3：实现 Playwright observe_page
+------------------------------------------------------------
+
+能力：
+- 获取 body.innerText
+- 获取 links
+- 获取 buttons
+- 获取 inputs
+- 获取 title
+- 获取 url
+
+先不做截图，除非需要调试。
+
+------------------------------------------------------------
+任务 4：实现页面类型判断规则
+------------------------------------------------------------
+
+实现：
+- is_job_detail_page
+- is_job_list_page
+- find_job_links
+- find_next_page_button
+- has_popup
+
+先支持中文招聘站关键词。
+
+------------------------------------------------------------
+任务 5：实现规则抽取
+------------------------------------------------------------
+
+实现：
+- section_between
+- extract_responsibilities
+- extract_requirements
+- extract_locations
+- extract_job_id
+- extract_title_by_rule
+- content_hash
+
+输出 partial CrawledJob。
+
+------------------------------------------------------------
+任务 6：实现 LLM fallback
+------------------------------------------------------------
+
+触发：
+- title 缺失
+- responsibilities 缺失
+- requirements 缺失
+- 页面噪声过多
+
+输出严格 JSON。
+进行 Pydantic 校验。
+禁止编造字段。
+
+------------------------------------------------------------
+任务 7：实现 SQLite 写入
+------------------------------------------------------------
+
+逻辑：
+- source_url 唯一
+- content_hash 判断更新
+- 新岗位 insert
+- 已存在且 hash 变化 update
+- last_seen_at 更新
+- status 默认 active
+
+------------------------------------------------------------
+任务 8：实现 Chroma 写入
+------------------------------------------------------------
+
+每个岗位写入：
+- basic chunk
+- responsibilities chunk
+- requirements chunk
+
+metadata：
+- source
+- company
+- job_id
+- title
+- source_url
+- chunk_type
+
+------------------------------------------------------------
+任务 9：先跑一个站点
+------------------------------------------------------------
+
+推荐顺序：
+1. 腾讯
+2. 小米
+3. 华为
+
+原因：
+- 腾讯 post_detail?postid 结构直观
+- 小米详情页有 position id
+- 华为可能 portal 和动态接口更复杂
+
+先只跑 5 个岗位：
+- max_jobs=5
+- max_pages=1
+- headless=False 方便观察
+
+------------------------------------------------------------
+任务 10：接入现有 job-hunting-agent
+------------------------------------------------------------
+
+完成后检查：
+- SQLite 是否新增岗位
+- Chroma 是否新增向量
+- Web Agent 是否能检索到新岗位
+- 回答是否带原始 URL
+- 不泄漏 raw JSON
+- 简历匹配是否能使用新岗位
+
+
+============================================================
+15. 推荐开发参数
+============================================================
+
+MVP 配置：
+
+{
+  "headless": false,
+  "max_pages": 1,
+  "max_jobs": 5,
+  "max_steps": 50,
+  "wait_after_click_ms": 1500,
+  "request_delay_ms": 1000,
+  "llm_fallback": true,
+  "save_screenshot": false
+}
+
+生产配置：
+
+{
+  "headless": true,
+  "max_pages": 5,
+  "max_jobs": 100,
+  "max_steps": 500,
+  "wait_after_click_ms": 1000,
+  "request_delay_ms": 2000,
+  "llm_fallback": true,
+  "save_screenshot": true
+}
+
+注意：
+- 开发期 headless=False
+- 生产期 headless=True
+- 必须设置 max_steps 防止死循环
+- 必须设置访问间隔
+
+
+============================================================
+16. 最终结论
+============================================================
+
+本轮讨论形成的核心结论：
+
+1. 你的 JobBrowsingAgent 第一版可以完全基于 Playwright。
+2. Crawl4AI 不是必须组件。
+3. Playwright 负责像人一样访问页面，包括点击、翻页、筛选、进入详情页。
+4. 页面可见文本可以直接通过 body.innerText / main.innerText 获取。
+5. 是否是岗位详情页可以用规则判断，不一定用 LLM。
+6. 岗位职责、岗位要求可以先用规则分段抽取。
+7. LLM 只做兜底、字段归一化和复杂文本结构化。
+8. SQLite 存 CrawledJob 结构化数据。
+9. Chroma 存岗位原文 chunk，用于 RAG。
+10. Crawl4AI 后续适合用于已知详情 URL 的 Markdown 清洗和批量抽取。
+11. 最终推荐架构是：
+    Playwright Browser Agent
+    + Rules
+    + LLM fallback
+    + SQLite
+    + Chroma
+    + Optional Crawl4AI extraction layer
+
+一句话概括：
+
+第一版先做 Playwright-only Browser Agent，把招聘详情页“人眼可见文本”转成 CrawledJob 并写入 SQLite/Chroma；等流程跑通后，再把 Crawl4AI 作为详情页 Markdown 清洗和批量抽取增强层接入。

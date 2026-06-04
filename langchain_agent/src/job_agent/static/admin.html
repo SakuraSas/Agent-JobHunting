@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>岗位同步后台 · Agent-JobHunting</title>
+    <link rel="stylesheet" href="/static/admin.css?v=20260531-1" />
+  </head>
+  <body>
+    <header class="header">
+      <div>
+        <h1>岗位同步后台</h1>
+        <p>查看数据源状态、同步日志和岗位生命周期。</p>
+      </div>
+      <div class="header-actions">
+        <button id="refresh">刷新</button>
+        <a href="/">返回对话</a>
+      </div>
+    </header>
+
+    <main>
+      <section>
+        <div class="section-title">
+          <h2>数据源</h2>
+          <span id="sourceSummary"></span>
+        </div>
+        <div id="sources" class="cards"></div>
+      </section>
+
+      <section>
+        <div class="section-title">
+          <h2>同步日志</h2>
+          <span>最近 100 条</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>来源</th><th>状态</th><th>开始时间</th><th>完成时间</th>
+                <th>抓取</th><th>变化</th><th>失效</th><th>过期</th><th>重复</th><th>错误</th>
+              </tr>
+            </thead>
+            <tbody id="logs"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-title">
+          <h2>待审核岗位</h2>
+          <span id="reviewSummary"></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>来源</th><th>岗位</th><th>公司</th><th>地点</th><th>置信度</th>
+                <th>审核原因</th><th>更新时间</th><th>链接</th><th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="reviews"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-title">
+          <h2>岗位数据</h2>
+          <span id="jobSummary"></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>来源</th><th>岗位</th><th>公司</th><th>地点</th><th>发布日期</th>
+                <th>最后出现</th><th>状态</th><th>失效原因</th><th>链接</th>
+              </tr>
+            </thead>
+            <tbody id="jobs"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+    <script src="/static/admin.js?v=20260601-1"></script>
+  </body>
+</html>
