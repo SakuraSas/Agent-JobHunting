@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, Field, field_validator
@@ -31,6 +32,8 @@ class BrowserSource(BaseModel):
     api_pagination: bool = False
     api_response_pattern: str | None = None
     api_next_selector: str | None = None
+    api_request_body: dict[str, Any] | None = None
+    api_page_size: int = Field(default=10, ge=1, le=100)
     api_max_pages: int | None = Field(default=None, ge=1)
     max_list_pages: int = Field(default=1, ge=1)
     max_detail_jobs: int = Field(default=30, ge=1)

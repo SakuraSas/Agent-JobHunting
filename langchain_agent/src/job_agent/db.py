@@ -275,6 +275,59 @@ def list_job_catalog(
     }
 
 
+def get_job_database_summary(exclude_company: str | None = None, company_limit: int = 50) -> dict[str, Any]:
+    init_db()
+    active_where = "(status IS NULL OR status = 'active')"
+    exclude_clause = ""
+    params: list[Any] = []
+    if exclude_company:
+        exclude_clause = " AND company != ?"
+        params.append(exclude_company)
+
+    with get_connection() as conn:
+        active_total = conn.execute(f"SELECT COUNT(*) FROM jobs WHERE {active_where}").fetchone()[0]
+        inactive_total = conn.execute("SELECT COUNT(*) FROM jobs WHERE status = 'inactive'").fetchone()[0]
+        source_rows = conn.execute(
+            f"""
+            SELECT COALESCE(source, 'unknown') AS source, COUNT(*) AS count
+            FROM jobs
+            WHERE {active_where}
+            GROUP BY COALESCE(source, 'unknown')
+            ORDER BY count DESC, source
+            """
+        ).fetchall()
+        company_rows = conn.execute(
+            f"""
+            SELECT company, COUNT(*) AS count
+            FROM jobs
+            WHERE {active_where}{exclude_clause}
+            GROUP BY company
+            ORDER BY count DESC, company
+            LIMIT ?
+            """,
+            (*params, max(1, min(company_limit, 200))),
+        ).fetchall()
+        sample_rows = conn.execute(
+            f"""
+            SELECT id, title, company, city, job_type, source, source_url
+            FROM jobs
+            WHERE {active_where}{exclude_clause}
+            ORDER BY published_at DESC, id
+            LIMIT 20
+            """,
+            params,
+        ).fetchall()
+
+    return {
+        "active_total": active_total,
+        "inactive_total": inactive_total,
+        "source_counts": [dict(row) for row in source_rows],
+        "company_counts": [dict(row) for row in company_rows],
+        "sample_jobs": [dict(row) for row in sample_rows],
+        "exclude_company": exclude_company,
+    }
+
+
 def list_admin_jobs(limit: int = 200) -> list[dict[str, Any]]:
     init_db()
     with get_connection() as conn:

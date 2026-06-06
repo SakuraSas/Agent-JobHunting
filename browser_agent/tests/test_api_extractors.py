@@ -1,4 +1,8 @@
-from job_browsing_agent.api_extractors import extract_xiaomi_api_job, xiaomi_detail_url
+from job_browsing_agent.api_extractors import (
+    extract_uestc_recruitment_api_job,
+    extract_xiaomi_api_job,
+    xiaomi_detail_url,
+)
 from job_browsing_agent.models import BrowserSource
 
 
@@ -41,3 +45,41 @@ def test_extract_xiaomi_api_job() -> None:
 
 def test_extract_xiaomi_api_job_rejects_incomplete_payload() -> None:
     assert extract_xiaomi_api_job({"id": "123", "title": "Incomplete"}, _source()) is None
+
+
+def test_extract_uestc_internship_api_job() -> None:
+    source = BrowserSource(
+        name="uestc_internship_browser",
+        adapter="uestc_recruitment",
+        list_url="https://jiuye.uestc.edu.cn/career/recruitment/internship",
+        robots_url="https://jiuye.uestc.edu.cn/robots.txt",
+        allowed_domains=["jiuye.uestc.edu.cn"],
+        api_request_body={"type": "INTERNSHIP_RECRUITMENT"},
+    )
+    job = extract_uestc_recruitment_api_job(
+        {
+            "id": "2061711229795868673",
+            "companyName": "新华三技术有限公司",
+            "recruitmentTypeLabel": "实习招聘",
+            "workLocation": "北京市:海淀区,浙江省:杭州市",
+            "publishTime": "2026-06-02 16:05:25",
+            "resumeEndTime": "2026-09-01 00:00:00",
+            "educationRequirementLabel": ["本科", "硕士"],
+            "occupationCategoryLabel": ["技术类", "销售类"],
+            "companyIntroduction": "<p>新华三集团作为数字化及AI解决方案领导者。</p>",
+            "preachingUrls": '["https://career.h3c.com/intern/jobs"]',
+            "attachmentUrl": (
+                '[{"name":"新华三-2026年实习生招聘招聘简章.docx"}]'
+            ),
+        },
+        source,
+    )
+    assert job is not None
+    assert job.id == "uestc-internship-2061711229795868673"
+    assert job.company == "新华三技术有限公司"
+    assert job.city == "北京市:海淀区,浙江省:杭州市"
+    assert job.job_type == "实习招聘"
+    assert job.education == "本科、硕士"
+    assert "新华三集团" in job.description
+    assert "新华三-2026年实习生招聘招聘简章.docx" in job.requirements
+    assert job.source_url.endswith("/career/recruitment/internship?id=2061711229795868673")

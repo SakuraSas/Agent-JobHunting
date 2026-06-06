@@ -1,26 +1,33 @@
-# Environment files
+# Secrets and local environment
 .env
 *.env
+!.env.example
 
-# Python
+# Python cache
 __pycache__/
 *.py[cod]
+*$py.class
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+htmlcov/
 
 # Virtual environments
 .venv/
 venv/
+env/
 langchain_agent/.venv/
 browser_agent/.venv/
 
-# Local databases and runtime data
+# Runtime databases and local state
 langchain_agent/data/*.db
 langchain_agent/data/*.db-*
 langchain_agent/data/chroma/
 langchain_agent/data/chroma_corrupt_*/
 langchain_agent/data/resumes/
+
+# Browser Agent runtime output
 browser_agent/logs/
 browser_agent/output/
 
@@ -29,9 +36,17 @@ bge-small/
 *.bin
 *.safetensors
 *.onnx
+*.pt
+*.pth
 
-# OS/editor
+# Logs and temporary files
+*.log
+tmp/
+temp/
+
+# OS/editor files
 .DS_Store
 Thumbs.db
+Desktop.ini
 .vscode/
 .idea/

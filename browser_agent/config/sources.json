@@ -20,6 +20,32 @@
       "request_delay_seconds": 1.5,
       "navigation_wait_ms": 3500,
       "use_llm_fallback": false
+    },
+    {
+      "name": "uestc_internship_browser",
+      "enabled": true,
+      "adapter": "uestc_recruitment",
+      "list_url": "https://jiuye.uestc.edu.cn/career/recruitment/internship",
+      "robots_url": "https://jiuye.uestc.edu.cn/robots.txt",
+      "allow_missing_robots_txt": true,
+      "allowed_domains": ["jiuye.uestc.edu.cn"],
+      "detail_url_patterns": [],
+      "api_pagination": true,
+      "api_response_pattern": "/career/api/home/recruitmentList",
+      "api_request_body": {
+        "type": "INTERNSHIP_RECRUITMENT",
+        "timeRange": "ALL",
+        "isSearchPage": false,
+        "searchParams": []
+      },
+      "api_page_size": 20,
+      "api_max_pages": 10,
+      "max_detail_jobs": 200,
+      "detail_concurrency": 1,
+      "llm_concurrency": 1,
+      "request_delay_seconds": 1.5,
+      "navigation_wait_ms": 2500,
+      "use_llm_fallback": false
     }
   ]
 }

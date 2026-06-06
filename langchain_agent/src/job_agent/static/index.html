@@ -4,22 +4,28 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Agent-JobHunting</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260531-3" />
+    <link rel="stylesheet" href="/static/style.css?v=20260606-fresh-1" />
   </head>
   <body>
     <aside class="sidebar">
       <div class="brand">
         <div class="brand-mark">J</div>
-        <span>Agent-JobHunting</span>
+        <div>
+          <span>Agent-JobHunting</span>
+          <small>智能求职助手</small>
+        </div>
       </div>
-      <button id="newSession" class="new-session">＋ 开启新对话</button>
+
+      <button id="newSession" class="new-session" type="button">+ 开启新对话</button>
+
       <div class="sidebar-heading">求职会话</div>
       <div id="sessionList" class="session-list"></div>
+
       <div class="sidebar-footer">
         <div class="status-dot"></div>
         <div>
-          <strong>本地求职助手</strong>
-          <small>仅提供建议，不代替投递</small>
+          <strong>本地 RAG 已连接</strong>
+          <small>只提供建议，不代替投递</small>
         </div>
       </div>
     </aside>
@@ -27,20 +33,24 @@
     <main class="main">
       <header class="topbar">
         <div>
-          <strong>Agent-JobHunting</strong>
-          <span>RAG 岗位检索与简历匹配建议</span>
+          <strong>求职研究台</strong>
+          <span>岗位检索 · 简历匹配 · 能力补全建议</span>
         </div>
-        <a class="topbar-link" href="/admin">同步日志</a>
+        <a class="topbar-link" href="/admin">同步与审核</a>
       </header>
 
       <section id="emptyState" class="empty-state">
         <div class="hero-icon">J</div>
-        <h1>开始你的求职岗位研究</h1>
-        <p>检索公开岗位，结合简历获得匹配分析，并前往原始链接自行核实。</p>
+        <p class="eyebrow">Agent-JobHunting</p>
+        <h1>把岗位信息整理清楚，再决定下一步</h1>
+        <p>
+          检索真实岗位，结合你的简历分析匹配度、能力缺口和补强方向。
+          所有建议都会保留原始岗位链接，方便你自己核实。
+        </p>
         <div class="quick-actions">
-          <button data-prompt="帮我找远程 Python 开发岗位">远程 Python 岗位</button>
+          <button data-prompt="告知我现在数据库里除了小米的岗位信息还有哪些其他的岗位？">查看数据源</button>
           <button data-prompt="帮我找成都的大模型应用开发实习岗位">成都 AI 实习</button>
-          <button data-prompt="请说明如何使用固定简历目录进行岗位匹配分析">如何分析简历</button>
+          <button data-prompt="我的简历和北京的哪两个岗位最匹配？">简历匹配岗位</button>
         </div>
       </section>
 
@@ -51,21 +61,25 @@
           <span>正在使用：<strong id="activeResumeName"></strong></span>
           <button id="clearActiveResume" type="button">取消选择</button>
         </div>
+
         <form id="chatForm" class="composer">
           <textarea
             id="messageInput"
             rows="1"
-            placeholder="输入岗位需求，例如：查看全部岗位；或分析当前简历与某个岗位的匹配度"
+            placeholder="输入你的求职问题，例如：查看所有实习岗位；或分析当前简历与某个岗位的匹配度"
           ></textarea>
           <div class="composer-bottom">
             <div class="composer-tools">
-              <button id="resumeUpload" class="composer-tool" type="button">＋ 上传简历</button>
-              <span>也可以将简历拖到输入框后释放</span>
+              <button id="resumeUpload" class="composer-tool" type="button">管理简历</button>
+              <span>也可以把简历拖到输入框后释放</span>
             </div>
-            <button id="sendButton" class="send-button" type="submit">↑</button>
+            <button id="sendButton" class="send-button" type="submit" aria-label="发送">↑</button>
           </div>
         </form>
-        <p class="notice">Agent 仅提供信息与建议。请打开原始 URL 核实岗位状态，并自行决定是否投递。</p>
+
+        <p class="notice">
+          Agent 只做信息整理和建议。请打开原始 URL 核实岗位状态，并自行决定是否投递。
+        </p>
       </section>
     </main>
 
@@ -74,16 +88,18 @@
         <div class="modal-header">
           <div>
             <h2 id="resumeModalTitle">简历管理</h2>
-            <p>上传、选择或删除简历。当前选择会显示在输入框上方。</p>
+            <p>上传、选择或删除简历。当前选中的简历会显示在输入框上方。</p>
           </div>
           <button id="resumeModalClose" class="modal-close" title="关闭">×</button>
         </div>
+
         <label id="resumeDropzone" class="dropzone">
           <input id="resumeFile" type="file" accept=".pdf,.docx,.txt" />
           <strong>拖拽简历到这里</strong>
           <span>或者点击选择文件</span>
           <small>支持 PDF、DOCX、TXT，最大 8 MB。同名文件会覆盖旧版本。</small>
         </label>
+
         <div class="resume-list-wrap">
           <strong>已上传简历</strong>
           <div id="resumeList" class="resume-list"></div>
@@ -94,6 +110,6 @@
     <div id="toast" class="toast"></div>
     <script src="/static/vendor/marked.umd.js?v=17.0.1"></script>
     <script src="/static/vendor/purify.min.js?v=3.4.2"></script>
-    <script src="/static/app.js?v=20260531-6"></script>
+    <script src="/static/app.js?v=20260606-fresh-1"></script>
   </body>
 </html>

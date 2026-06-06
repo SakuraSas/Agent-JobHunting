@@ -1,5 +1,24 @@
-.venv/
+# Secrets
+.env
+*.env
+!.env.example
+
+# Python
 __pycache__/
+*.py[cod]
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environment
+.venv/
+
+# Runtime output
 output/
-logs
+logs/
+
+# Local/editor files
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini

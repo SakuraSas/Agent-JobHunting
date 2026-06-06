@@ -158,6 +158,69 @@ class BrowserAgent:
                     fallback_urls.add(xiaomi_detail_url(self.source, str(item["id"])))
         return list(jobs.values()), sorted(fallback_urls)
 
+    async def _collect_direct_api_pages(self, page: Page):
+        if not self.source.api_response_pattern or not self.source.api_request_body:
+            raise ValueError(f"Missing direct API config for source: {self.source.name}")
+        extractor = API_EXTRACTORS.get(self.source.adapter or "")
+        if extractor is None:
+            raise ValueError(f"Missing API extractor for adapter: {self.source.adapter}")
+
+        await self._snapshot(page, self.source.list_url)
+        endpoint = urljoin(self.source.list_url, self.source.api_response_pattern)
+        max_pages = self.source.api_max_pages or 1
+        jobs = {}
+        api_output = self.output_root / "api" / self.source.name
+        api_output.mkdir(parents=True, exist_ok=True)
+
+        for page_number in range(1, max_pages + 1):
+            await self.rate_limiter.wait(endpoint)
+            body = {
+                **self.source.api_request_body,
+                "pageIndex": page_number,
+                "pageSize": self.source.api_page_size,
+            }
+            payload = await page.evaluate(
+                """
+                async ({ endpoint, body }) => {
+                    const response = await fetch(endpoint, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(body)
+                    });
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    return await response.json();
+                }
+                """,
+                {"endpoint": endpoint, "body": body},
+            )
+            (api_output / f"page_{page_number:03d}.json").write_text(
+                json.dumps({"url": endpoint, "body": body, "payload": payload}, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            if not isinstance(payload, dict) or payload.get("code") != 0:
+                raise RuntimeError(f"Unexpected API response from {endpoint}: {payload}")
+
+            data = payload.get("data") or []
+            if isinstance(data, dict):
+                data = data.get("job_post_list") or []
+            if not data:
+                break
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                candidate = extractor(item, self.source)
+                if candidate:
+                    jobs[candidate.id] = assess(candidate)
+
+            page_info = payload.get("page") or {}
+            total_page = int(page_info.get("totalPage") or max_pages)
+            if page_number >= total_page:
+                break
+
+        return list(jobs.values()), []
+
     async def _extract_detail(self, browser: Browser, url: str):
         page = await browser.new_page()
         try:
@@ -187,7 +250,10 @@ class BrowserAgent:
                 list_page = await browser.new_page()
                 api_skipped_urls = []
                 if self.source.api_pagination:
-                    candidates, fallback_urls = await self._collect_api_pages(list_page)
+                    if self.source.api_request_body:
+                        candidates, fallback_urls = await self._collect_direct_api_pages(list_page)
+                    else:
+                        candidates, fallback_urls = await self._collect_api_pages(list_page)
                     if fallback_urls:
                         semaphore = asyncio.Semaphore(self.source.detail_concurrency)
 

@@ -15,6 +15,7 @@ from job_agent.tools import (
     list_available_jobs,
     read_resume_profile,
     search_jobs,
+    summarize_job_database,
 )
 
 CHECKPOINT_PATH = Path(__file__).resolve().parents[2] / "data" / "checkpoints.db"
@@ -49,6 +50,11 @@ SYSTEM_PROMPT = """
 18. list_available_jobs 是分页目录。回答时必须明确 active 岗位总数、当前展示数量和是否还有下一页。除非用户明确要求逐页继续展示，否则不要在一次回复中输出数百条岗位详情。
 """
 
+SYSTEM_PROMPT += """
+19. 用户询问岗位来源、公司分布、除了某家公司还有哪些岗位、或者“是不是只有某公司”时，必须调用 summarize_job_database。
+20. 不要用 list_available_jobs 的第一页结果推断全库分布；list_available_jobs 只是分页目录，不是来源/公司统计工具。
+"""
+
 
 class WebAgent:
     def __init__(self) -> None:
@@ -69,7 +75,14 @@ class WebAgent:
         )
         self.agent = create_agent(
             model=model,
-            tools=[search_jobs, list_available_jobs, get_job_detail, read_resume_profile, analyze_job_match],
+            tools=[
+                search_jobs,
+                list_available_jobs,
+                summarize_job_database,
+                get_job_detail,
+                read_resume_profile,
+                analyze_job_match,
+            ],
             checkpointer=self.checkpointer,
             system_prompt=SYSTEM_PROMPT,
         )

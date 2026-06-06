@@ -3,11 +3,19 @@ from langchain_deepseek import ChatDeepSeek
 from langgraph.checkpoint.memory import InMemorySaver
 
 from job_agent.config import settings
-from job_agent.tools import analyze_job_match, get_job_detail, list_available_jobs, read_resume_profile, search_jobs
+from job_agent.tools import (
+    analyze_job_match,
+    get_job_detail,
+    list_available_jobs,
+    read_resume_profile,
+    search_jobs,
+    summarize_job_database,
+)
 
 tools=[
     search_jobs,
     list_available_jobs,
+    summarize_job_database,
     get_job_detail,
     read_resume_profile,
     analyze_job_match,

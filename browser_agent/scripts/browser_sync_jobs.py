@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = ROOT.parent
@@ -52,6 +52,9 @@ def update_vectors(changed_ids: list[str], inactive_ids: list[str]) -> None:
         return
     env = os.environ.copy()
     env.pop("VIRTUAL_ENV", None)
+    for key, value in dotenv_values(AGENT_ROOT / ".env").items():
+        if value is not None:
+            env[key.lstrip("\ufeff")] = value
     subprocess.run(
         [
             "uv",

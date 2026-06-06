@@ -2,7 +2,7 @@ from typing import Any
 
 from langchain.tools import tool
 
-from job_agent.db import get_job_by_id, list_job_catalog
+from job_agent.db import get_job_by_id, get_job_database_summary, list_job_catalog
 from job_agent.rag import semantic_search
 from job_agent.resume import read_resume_by_name
 
@@ -44,6 +44,15 @@ def list_available_jobs(
     safe_limit = max(1, min(limit, 100))
     safe_offset = max(0, offset)
     return list_job_catalog(limit=safe_limit, offset=safe_offset, city=city, job_type=job_type)
+
+
+@tool
+def summarize_job_database(exclude_company: str | None = None, company_limit: int = 50) -> dict[str, Any]:
+    """统计数据库 active 岗位的来源和公司分布。用于回答有哪些数据源、除了某公司还有哪些岗位或公司。"""
+    return get_job_database_summary(
+        exclude_company=exclude_company,
+        company_limit=max(1, min(company_limit, 200)),
+    )
 
 
 @tool

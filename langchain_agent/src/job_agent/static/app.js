@@ -4,6 +4,7 @@ const state = {
   activeResume: localStorage.getItem("activeResume") || null,
   busy: false,
 };
+
 const list = document.querySelector("#sessionList");
 const messages = document.querySelector("#messages");
 const empty = document.querySelector("#emptyState");
@@ -33,41 +34,6 @@ async function api(path, options = {}) {
   return response.json();
 }
 
-async function renderResumes() {
-  const data = await api("/api/resumes");
-  resumeList.replaceChildren();
-  if (state.activeResume && !data.files.includes(state.activeResume)) setActiveResume(null);
-  if (!data.files.length) {
-    resumeList.textContent = "暂无简历";
-    return;
-  }
-  for (const filename of data.files) {
-    const item = document.createElement("div");
-    item.className = `resume-item ${filename === state.activeResume ? "active" : ""}`;
-    const name = document.createElement("span");
-    name.className = "resume-name";
-    name.textContent = filename;
-    const actions = document.createElement("div");
-    actions.className = "resume-actions";
-    const use = document.createElement("button");
-    use.type = "button";
-    use.textContent = filename === state.activeResume ? "使用中" : "使用";
-    use.disabled = filename === state.activeResume;
-    use.onclick = () => {
-      setActiveResume(filename);
-      renderResumes().catch((error) => showToast(error.message));
-    };
-    const remove = document.createElement("button");
-    remove.type = "button";
-    remove.className = "danger";
-    remove.textContent = "删除";
-    remove.onclick = () => deleteResume(filename);
-    actions.append(use, remove);
-    item.append(name, actions);
-    resumeList.appendChild(item);
-  }
-}
-
 function setActiveResume(filename) {
   state.activeResume = filename;
   if (filename) {
@@ -78,6 +44,49 @@ function setActiveResume(filename) {
     localStorage.removeItem("activeResume");
     activeResumeName.textContent = "";
     activeResume.classList.add("hidden");
+  }
+}
+
+async function renderResumes() {
+  const data = await api("/api/resumes");
+  resumeList.replaceChildren();
+  if (state.activeResume && !data.files.includes(state.activeResume)) {
+    setActiveResume(null);
+  }
+  if (!data.files.length) {
+    resumeList.textContent = "暂无简历";
+    return;
+  }
+
+  for (const filename of data.files) {
+    const item = document.createElement("div");
+    item.className = `resume-item ${filename === state.activeResume ? "active" : ""}`;
+
+    const name = document.createElement("span");
+    name.className = "resume-name";
+    name.textContent = filename;
+
+    const actions = document.createElement("div");
+    actions.className = "resume-actions";
+
+    const use = document.createElement("button");
+    use.type = "button";
+    use.textContent = filename === state.activeResume ? "使用中" : "使用";
+    use.disabled = filename === state.activeResume;
+    use.onclick = () => {
+      setActiveResume(filename);
+      renderResumes().catch((error) => showToast(error.message));
+    };
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "danger";
+    remove.textContent = "删除";
+    remove.onclick = () => deleteResume(filename);
+
+    actions.append(use, remove);
+    item.append(name, actions);
+    resumeList.appendChild(item);
   }
 }
 
@@ -114,11 +123,13 @@ function renderSessions() {
   for (const session of state.sessions) {
     const row = document.createElement("div");
     row.className = `session ${session.thread_id === state.activeThreadId ? "active" : ""}`;
+
     const title = document.createElement("button");
     title.className = "session-title";
     title.title = session.name;
     title.textContent = session.name;
     title.onclick = () => selectSession(session.thread_id);
+
     const remove = document.createElement("button");
     remove.className = "delete-session";
     remove.title = "删除会话";
@@ -127,6 +138,7 @@ function renderSessions() {
       event.stopPropagation();
       await deleteSession(session.thread_id);
     };
+
     row.append(title, remove);
     list.appendChild(row);
   }
@@ -172,7 +184,9 @@ function addContent(bubble, content) {
 
 async function loadSessions() {
   state.sessions = await api("/api/sessions");
-  if (!state.activeThreadId && state.sessions.length) state.activeThreadId = state.sessions[0].thread_id;
+  if (!state.activeThreadId && state.sessions.length) {
+    state.activeThreadId = state.sessions[0].thread_id;
+  }
   if (!state.activeThreadId) await createSession();
   renderSessions();
   await loadMessages();
@@ -223,6 +237,7 @@ async function sendMessage(text) {
   const answer = appendMessage("assistant", "");
   input.value = "";
   input.style.height = "auto";
+
   try {
     const response = await fetch("/api/chat/send", {
       method: "POST",
@@ -234,6 +249,7 @@ async function sendMessage(text) {
       }),
     });
     if (!response.ok) throw new Error(await response.text());
+
     const reader = response.body.getReader();
     const decoder = new TextDecoder("utf-8");
     let buffer = "";
@@ -268,57 +284,72 @@ document.querySelector("#chatForm").onsubmit = (event) => {
   event.preventDefault();
   sendMessage(input.value.trim());
 };
+
 document.querySelector("#newSession").onclick = createSession;
+
 document.querySelector("#clearActiveResume").onclick = () => {
   setActiveResume(null);
   renderResumes().catch((error) => showToast(error.message));
 };
+
 document.querySelector("#resumeUpload").onclick = async () => {
   resumeModal.classList.remove("hidden");
   await renderResumes();
 };
+
 document.querySelector("#resumeModalClose").onclick = () => resumeModal.classList.add("hidden");
+
 resumeModal.onclick = (event) => {
   if (event.target === resumeModal) resumeModal.classList.add("hidden");
 };
+
 resumeFile.onchange = () => uploadResume(resumeFile.files[0]).catch((error) => showToast(error.message));
+
 for (const eventName of ["dragenter", "dragover"]) {
   resumeDropzone.addEventListener(eventName, (event) => {
     event.preventDefault();
     resumeDropzone.classList.add("dragging");
   });
 }
+
 for (const eventName of ["dragleave", "drop"]) {
   resumeDropzone.addEventListener(eventName, (event) => {
     event.preventDefault();
     resumeDropzone.classList.remove("dragging");
   });
 }
+
 resumeDropzone.addEventListener("drop", (event) => {
   uploadResume(event.dataTransfer.files[0]).catch((error) => showToast(error.message));
 });
+
 for (const eventName of ["dragenter", "dragover"]) {
   composer.addEventListener(eventName, (event) => {
     event.preventDefault();
     composer.classList.add("dragging");
   });
 }
+
 for (const eventName of ["dragleave", "drop"]) {
   composer.addEventListener(eventName, (event) => {
     event.preventDefault();
     composer.classList.remove("dragging");
   });
 }
+
 composer.addEventListener("drop", (event) => {
   uploadResume(event.dataTransfer.files[0]).catch((error) => showToast(error.message));
 });
+
 document.querySelectorAll("[data-prompt]").forEach((button) => {
   button.onclick = () => sendMessage(button.dataset.prompt);
 });
+
 input.oninput = () => {
   input.style.height = "auto";
   input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
 };
+
 input.onkeydown = (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
