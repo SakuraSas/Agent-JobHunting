@@ -1,3 +1,6 @@
+<img width="1912" height="948" alt="image" src="https://github.com/user-attachments/assets/087d9a33-a75b-46aa-bae8-a1a1910aaecb" />
+
+
 # Agent-JobHunting 技术文档
 
 生成时间：`2026-06-01 14:04:20 +08:00`
